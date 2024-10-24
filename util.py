@@ -10,3 +10,6 @@ def unipolar_sigmoid_derivative(x):
     # σ(x)' = σ(x) * (1 - σ(x))
     sig_x = unipolar_sigmoid(x)
     return sig_x * (1 - sig_x)
+
+def linear_activation(x):
+    return x

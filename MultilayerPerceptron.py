@@ -8,6 +8,8 @@ import util
 class Perceptron:
     def __init__(self, weights, a_function='sigmoid'):
         self.weights = np.array(weights)
+        # Random bias
+        self.bias = np.random.rand()
         self.a_function = a_function
 
         # Store activation and pre_activation for backprop
@@ -15,7 +17,7 @@ class Perceptron:
         self.pre_activation = None
         self.gradients = []
 
-        if a_function != 'sigmoid' and a_function != 'bipolar_sigmoid' and a_function != 'linear':
+        if a_function not in ['sigmoid', 'bipolar_sigmoid', 'linear']:
             raise ValueError("Invalid activation function.")
 
     def activation_function(self, x):
@@ -37,8 +39,9 @@ class Perceptron:
     # We will use this on the forward pass, this will predict with existing weights and inputs
     # then we will pass this on to the next layer.
     def predict(self, input_vector):
-        x = np.append(input_vector, -1)  # Add bias term to input
-        w = self.weights
+
+        x = np.append(input_vector, 1)  # Add bias term to input
+        w = np.append(self.weights, self.bias)
 
         # Dot product of inputs and weights
         dot_product = np.dot(x, w)
@@ -46,13 +49,7 @@ class Perceptron:
         # Store the weighted sum (z^L)
         self.pre_activation = dot_product
 
-        # Activation function: Bipolar = -1, Unipolar = 1, Linear = 0
-        if self.a_function == 1:
-            return util.unipolar_sigmoid(dot_product)
-        elif self.a_function == -1:
-            return util.unipolar_sigmoid(dot_product)
-        else:
-            return util.linear_activation(dot_product)
+        return self.activation_function(dot_product)
 
 class MultilayerPerceptron:
     def __init__(self, num_layers, layer_sizes, activations, learning_rate):
@@ -68,7 +65,7 @@ class MultilayerPerceptron:
         # make a list that will hold each of our layers
         self.layers = []
         for i in range(1, len(layer_sizes)):
-            weights = np.random.rand(layer_sizes[i-1] + 1)
+            weights = np.random.rand(layer_sizes[i-1])
 
             layer = [
                 Perceptron(weights=weights, a_function=activations[i-1])
@@ -96,69 +93,100 @@ class MultilayerPerceptron:
 
         # Save the activations of each node for back-propogation
         self.activations = activations
+
+    """
+     We want to go through and see how much each weight from a neuron in the n-1 layer
+     played into the error we have. We will then propogate this error backwards through the network
+     and continuely "blame" the nodes that caused the error at each point.
+        
+     We use a partial derivative of cost function with respect to each weight to find which way
+     a weight move the cost function when changed (the gradient). We will use the -gradient to adjust
+     the weights after backpropogation. 
+     
+    """
     def backprop(self, inputs, target_map):
+        # clear the gradients from the previous pass
         for layer in self.layers:
             for node in layer:
                 node.gradients.clear()
 
+        # we will go backwards through our network
         for i in range(len(self.layers) - 1, -1, -1):
-            # Get the current layer we are on
             curr_layer = self.layers[i]
 
             # If we are at the output layer
             if i == len(self.layers) - 1:
-                # The activation of the output node is the prediction
-                prediction = self.layers[i][0].activation
-                # MSE' = y actual - y predicted
-                error = target_map[inputs] - prediction
+                prediction = curr_layer[0].activation
+                error = prediction - target_map[inputs]
 
-                # Go through each of the weights connecting to the output layer
-                # find the gradient for each one of these
-                for j in range(len(self.layers[i][0].weights) - 1):
-                    print("In J loop", j)
-                    gradient = self.layers[i-1][j].activation * error
-                    self.layers[i][0].gradients.append(gradient)
+                # Calculate gradients for the output layer
+                for j in range(len(curr_layer[0].weights)):
+                    # case for finding gradient of weights
+                    if j < len(curr_layer[0].weights) - 1:
+                        gradient = self.activations[i - 1][j] * error
+                    else:
+                        gradient = error
+
+                    # add the gradients for the current node
+                    curr_layer[0].gradients.append(gradient)
             else:
-                # Go through each node in this layer => curr_node
-                for j, curr_node in enumerate(self.layers[i]):
-                    # calculate the propogated error for the layer
-                    propogated_error = 0
+                # go through each node in the layer.
+                for j, curr_node in enumerate(curr_layer):
 
-                    for k, next_node in enumerate(self.layers[i+1]):
-                        propogated_error += next_node.weights[j] * next_node.gradients[j]
+                    # we find propagated error by SUM(forward_weight_i * gradient_i)
+                    propagated_error = 0
+                    for k, next_node in enumerate(self.layers[i + 1]):
+                        propagated_error += next_node.weights[j] * next_node.gradients[j]
 
+                    # derivative of the activation(z^L)
                     derivative = curr_node.activation_derivative(curr_node.pre_activation)
-                    propogated_error *= derivative
-                    # go through each weight connecting to curr_node from n-1 layer
-                    # find the gradient of each of these weights
+                    propagated_error *= derivative
+
+                    # Gradients for weights and bias
                     if i == 0:
-                        for k in range(len(curr_node.weights) - 1):
-                            gradient = inputs[k] * propogated_error
+                        # Need this because input layer is just numbers, not perceptrons
+                        for k in range(len(curr_node.weights)):
+                            if k < len(curr_node.weights) - 1:
+                                gradient = inputs[k] * propagated_error
+                            else:
+                                gradient = propagated_error
                             curr_node.gradients.append(gradient)
                     else:
-                        for k in range(len(curr_node.weights) - 1):
-                            gradient = self.layers[i - 1][k].activation * propogated_error
+                        # Go through each weight
+                        for k in range(len(curr_node.weights)):
+                            # case for weights
+                            if k < len(curr_node.weights) - 1:
+                                # A^L-1 * propagated_error = gradient
+                                gradient = self.layers[i - 1][k].activation * propagated_error
+                            else:
+                                # case for the gradient
+                                gradient = propagated_error
                             curr_node.gradients.append(gradient)
+
     def update_weights(self):
-        # Go through each node in th
         for layer in self.layers:
             for node in layer:
-                for j in range(len(node.weights) - 1):
-                    node.weights[j] -= self.learning_rate * node.gradients[j]
+                for j in range(len(node.weights)):
+                    # Update the weights and biases based on LR and gradients
+                    if j < len(node.weights) - 1:
+                        node.weights[j] -= self.learning_rate * node.gradients[j]
+                    else:
+                        node.bias -= self.learning_rate * node.gradients[j]
 
 
-p = MultilayerPerceptron(4, [2, 4, 4, 1], ["sigmoid", "sigmoid", "linear"], 0.5)
+p = MultilayerPerceptron(4, [2, 4, 4, 1], ["sigmoid", "sigmoid", "linear"], 0.1)
 p.forward([5, 2])
 
 map = {(5, 2): 7.6}
 
-for i in range(5):
+for i in range(9000):
     p.forward([5, 2])
 
     p.backprop((5, 2), map)
 
     p.update_weights()
+    print(p.layers[-1][0].activation)
 
-
+# IT IS WOKRINGINIGNIGNG
 print(p.layers[-1][0].activation)
 

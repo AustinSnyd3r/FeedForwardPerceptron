@@ -1,4 +1,8 @@
 # Define class Perceptron
+import csv
+import math
+import random
+
 import numpy as np
 
 import util
@@ -86,7 +90,7 @@ class MultilayerPerceptron:
                 perceptron.activation = perceptron.predict(layer_inputs)
                 # Build up the outputs of this layer
                 layer_output.append(perceptron.activation)
-            print("Layer output: ", layer_output)
+            #print("Layer output: ", layer_output)
             # Make the inputs of next layer, the outputs of this layer
             layer_inputs = layer_output
             activations.append(layer_output)
@@ -174,19 +178,117 @@ class MultilayerPerceptron:
                         node.bias -= self.learning_rate * node.gradients[j]
 
 
-p = MultilayerPerceptron(4, [2, 4, 4, 1], ["sigmoid", "sigmoid", "linear"], 0.1)
-p.forward([5, 2])
+# Second array has the architecure 2 input 4 hidden in 1st layer 4 hidden in the second
+p = MultilayerPerceptron(4, [2, 7, 6, 1], ["sigmoid", "sigmoid", "linear"], 0.05)
 
-map = {(5, 2): 7.6}
 
-for i in range(9000):
-    p.forward([5, 2])
+# Define the architecture testing loop
+def test_mlp_architectures():
+    with open('benchmarks.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
 
-    p.backprop((5, 2), map)
+        # Write the header
+        writer.writerow(['Layer1_Num', 'Layer2_NUM', 'RMSE'])
 
-    p.update_weights()
-    print(p.layers[-1][0].activation)
 
-# IT IS WOKRINGINIGNIGNG
-print(p.layers[-1][0].activation)
+        min_rmse = float("inf")
+        best_config = None
 
+        # Define possible architectures and learning rates
+        hidden_layer_nodes = range(1, 11)  # 1-10 nodes in each layer
+        learning_rates = [0.01]  # Different learning rates to test
+
+        # Generate the dataset
+        data = []
+        results_map = {}
+        for x in np.arange(0.5, 100.5, 0.5):
+            for y in np.arange(0.5, 100.5, 0.5):
+                result = np.sin(np.pi * 10 * x + 10 / (1 + y ** 2)) + np.log(
+                    x ** 2 + y ** 2)  # log(x^2 + y^2 + 1) to avoid log(0)
+                data.append((x, y))
+                results_map[(x, y)] = result
+
+        # Shuffle and split data into training and testing sets
+        random.shuffle(data)
+        n = len(data) // 2
+        training = data[:n]
+        test = data[n:]
+
+        # Iterate over each combination of architecture and learning rate
+        for nodes_1 in hidden_layer_nodes:
+            for nodes_2 in hidden_layer_nodes:
+                for lr in learning_rates:
+                    # Initialize MLP with the current architecture
+                    p = MultilayerPerceptron(4, [2, nodes_1, nodes_2, 1], ["sigmoid", "sigmoid", "linear"], lr)
+
+                    # Training loop
+                    for epoch in range(40):
+                        for sample in training:
+                            p.forward(sample)
+                            p.backprop(sample, results_map)
+                            p.update_weights()
+                        random.shuffle(training)  # Shuffle data each epoch
+
+                    # Testing loop with RMSE calculation
+                    squared_errors = []
+                    for sample in test:
+                        p.forward(sample)
+                        prediction = p.layers[-1][0].activation
+                        actual = results_map[sample]
+                        squared_errors.append((prediction - actual) ** 2)
+
+                    # Calculate RMSE for the current architecture and learning rate
+                    rmse = math.sqrt(sum(squared_errors) / len(squared_errors))
+                    writer.writerow([nodes_1, nodes_2, rmse])
+                    print(f"Architecture: (hidden1={nodes_1}, hidden2={nodes_2}), Learning Rate: {lr}, RMSE: {rmse}")
+
+                    # Track the best configuration
+                    if rmse < min_rmse:
+                        min_rmse = rmse
+                        best_config = (nodes_1, nodes_2, lr)
+
+    print("\nBest Configuration:")
+    print(
+        f"Hidden Layer 1 Nodes: {best_config[0]}, Hidden Layer 2 Nodes: {best_config[1]}, Learning Rate: {best_config[2]}")
+    print("Minimum RMSE:", min_rmse)
+
+
+# Call the function to test architectures
+
+"""
+map = {}
+
+data = []
+# Generate the dataset
+for x in np.arange(0.5, 100.5, 0.5):
+    for y in np.arange(0.5, 100.5, 0.5):
+        result = np.sin(np.pi * 10 * x + 10 / (1 + y**2)) + np.log(x**2 + y**2)
+        data.append((x, y))
+        map[(x, y)] = result
+
+random.shuffle(data)
+n = len(data) // 2
+
+training = data[0:n]
+test = data[n:]
+
+# Training loop
+for epoch in range(40):
+    for sample in training:
+        p.forward(sample)
+        p.backprop(sample, map)
+        p.update_weights()
+    random.shuffle(training)
+
+# Testing loop with RMSE calculation
+squared_errors = []
+for sample in test:
+    p.forward(sample)
+    prediction = p.layers[-1][0].activation
+    actual = map[sample]
+    squared_errors.append((prediction - actual) ** 2)
+
+# Calculate RMSE
+rmse = math.sqrt(sum(squared_errors) / len(squared_errors))
+print("The Root Mean Squared Error (RMSE): ", rmse)
+"""
